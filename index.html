@@ -161,6 +161,7 @@
   });
 
   window.addEventListener('message', (e) => {
+    console.log('message', e.origin, e.data);
     let host = '';
     try { host = new URL(e.origin).hostname; } catch (_) {}
     if (!host.endsWith('.googleusercontent.com')) return;
