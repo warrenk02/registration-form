@@ -109,23 +109,13 @@
 </main>
 
 <script>
-  // Paste your Apps Script Web app URL here
-  const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbymp3tj9C58cmWHuNEphXLqCkziudeTJilnWNzSP-1CkLfsBEQNwYaiyJ7f2WyWwtGR3w/exec';
+  // Paste your Apps Script Web app URL here (must end in /exec)
+  const SCRIPT_URL = 'PASTE_YOUR_WEB_APP_URL_HERE';
 
   const form = document.getElementById('form');
   const btn = document.getElementById('submit');
   const status = document.getElementById('status');
-  let timer;
   document.getElementById('birthdate').max = new Date().toISOString().split('T')[0];
-
-  // The form posts into a hidden frame; the script replies with postMessage.
-  const frame = document.createElement('iframe');
-  frame.name = 'result_frame';
-  frame.hidden = true;
-  document.body.appendChild(frame);
-  form.method = 'POST';
-  form.action = SCRIPT_URL;
-  form.target = 'result_frame';
 
   function clearErrors() {
     document.querySelectorAll('.err').forEach(el => el.textContent = '');
@@ -137,7 +127,23 @@
     status.className = cls;
   }
 
-  form.addEventListener('submit', (e) => {
+  // Sends the data by loading the script URL as a <script> tag (JSONP),
+  // which avoids CORS and framing restrictions.
+  function send(values) {
+    return new Promise((resolve, reject) => {
+      const cb = 'cb_' + Date.now();
+      const tag = document.createElement('script');
+      const done = () => { clearTimeout(timer); delete window[cb]; tag.remove(); };
+      const timer = setTimeout(() => { done(); reject(new Error('timeout')); }, 20000);
+      window[cb] = (data) => { done(); resolve(data); };
+      tag.onerror = () => { done(); reject(new Error('load failed')); };
+      tag.src = SCRIPT_URL + '?' + new URLSearchParams({ ...values, callback: cb });
+      document.body.appendChild(tag);
+    });
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
     clearErrors();
     const v = Object.fromEntries(new FormData(form));
     const errs = {};
@@ -147,37 +153,29 @@
     if (!v.birthdate || isNaN(bd)) errs.birthdate = 'Enter a valid birthdate.';
     else if (bd > new Date()) errs.birthdate = 'Birthdate cannot be in the future.';
     if (Object.keys(errs).length) {
-      e.preventDefault();
       for (const [f, msg] of Object.entries(errs)) {
         document.querySelector('.err[data-for="' + f + '"]').textContent = msg;
       }
       return;
     }
     btn.disabled = true;
-    timer = setTimeout(() => {
-      btn.disabled = false;
-      show('Could not reach the server. Check your connection and try again.', 'fail');
-    }, 20000);
-  });
-
-  window.addEventListener('message', (e) => {
-    console.log('message', e.origin, e.data);
-    let host = '';
-    try { host = new URL(e.origin).hostname; } catch (_) {}
-    if (!host.endsWith('.googleusercontent.com')) return;
-    clearTimeout(timer);
-    btn.disabled = false;
-    const data = e.data || {};
-    if (data.ok) {
-      show('Registered. Thank you!', 'ok');
-      form.reset();
-    } else if (data.errors) {
-      for (const [f, msg] of Object.entries(data.errors)) {
-        const el = document.querySelector('.err[data-for="' + f + '"]');
-        if (el) el.textContent = msg;
+    try {
+      const data = await send(v);
+      if (data.ok) {
+        show('Registered. Thank you!', 'ok');
+        form.reset();
+      } else if (data.errors) {
+        for (const [f, msg] of Object.entries(data.errors)) {
+          const el = document.querySelector('.err[data-for="' + f + '"]');
+          if (el) el.textContent = msg;
+        }
+      } else {
+        show(data.error || 'Something went wrong.', 'fail');
       }
-    } else {
-      show(data.error || 'Something went wrong.', 'fail');
+    } catch (err) {
+      show('Could not reach the server. Check your connection and try again.', 'fail');
+    } finally {
+      btn.disabled = false;
     }
   });
 </script>
